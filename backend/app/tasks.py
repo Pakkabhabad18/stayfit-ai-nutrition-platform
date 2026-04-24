@@ -32,9 +32,10 @@ def process_meal_analysis(user_id, meal_type, filename):
         mime_type = 'image/jpeg'
 
         # 2. Analyze with Gemini
-        print("[CELERY] Calling Gemini AI API... (this may take 10-15 seconds)")
+        print("[CELERY] Calling AI API... (this may take 10-15 seconds)")
         analysis = analyze_food_image(image_data, mime_type)
-        print(f"[CELERY] Gemini analysis complete: {json.dumps(analysis)[:100]}...")
+        provider = analysis.get('provider', 'AI')
+        print(f"[CELERY] {provider} analysis complete: {json.dumps(analysis)[:100]}...")
 
         # 3. Create and save Meal record
         print("[CELERY] Saving meal to database...")
@@ -84,9 +85,10 @@ def process_text_analysis(user_id, meal_type, text_description):
     
     try:
         # 1. Analyze with Gemini
-        print("[CELERY] Calling Gemini AI API for text... (this may take 5-10 seconds)")
+        print("[CELERY] Calling AI API for text... (this may take 5-10 seconds)")
         analysis = analyze_food_text(text_description)
-        print(f"[CELERY] Gemini text analysis complete: {json.dumps(analysis)[:100]}...")
+        provider = analysis.get('provider', 'AI')
+        print(f"[CELERY] {provider} text analysis complete: {json.dumps(analysis)[:100]}...")
 
         # 2. Create and save Meal record
         print("[CELERY] Saving meal to database...")

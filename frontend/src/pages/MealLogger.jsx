@@ -380,7 +380,7 @@ export default function MealLogger() {
                 <div>
                   <h4 style={{ fontWeight: 600 }}>AI Analysis Complete</h4>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Powered by Gemini 1.5 Flash
+                    Powered by {analysis.provider || 'AI'}
                   </p>
                 </div>
               </div>

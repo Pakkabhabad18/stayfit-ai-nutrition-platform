@@ -1,23 +1,89 @@
 import google.generativeai as genai
+from groq import Groq
 from app.config import Config
 import json
 import base64
 import re
-
+from tenacity import retry, stop_after_attempt, wait_exponential
+from pycircuitbreaker import circuit
 
 def configure_gemini():
     """Configure the Gemini API client."""
     genai.configure(api_key=Config.GEMINI_API_KEY)
 
+def get_groq_client():
+    """Get the Groq API client."""
+    return Groq(api_key=Config.GROQ_API_KEY)
+
+def _clean_json_response(response_text):
+    """Remove markdown formatting from JSON response."""
+    if response_text.startswith('```'):
+        response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
+        response_text = re.sub(r'\n?```$', '', response_text)
+    return response_text
+
+@circuit
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
+def _call_gemini_vision(prompt, image_part):
+    configure_gemini()
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    response = model.generate_content([prompt, image_part])
+    return response.text.strip()
+
+@circuit
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
+def _call_gemini_text(prompt):
+    configure_gemini()
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    response = model.generate_content(prompt)
+    return response.text.strip()
+
+def _call_groq_vision(prompt, image_data, mime_type):
+    client = get_groq_client()
+    base64_image = base64.b64encode(image_data).decode('utf-8')
+    data_url = f"data:{mime_type};base64,{base64_image}"
+    
+    response = client.chat.completions.create(
+        model="llama-3.2-11b-vision-preview",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}}
+                ]
+            }
+        ],
+        temperature=0.1,
+        max_tokens=1024,
+    )
+    return response.choices[0].message.content.strip()
+
+def _call_groq_text(prompt):
+    client = get_groq_client()
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
+        max_tokens=1024,
+    )
+    return response.choices[0].message.content.strip()
+
+def get_default_food_analysis():
+    return {
+        'food_items': [{'name': 'Unidentified food', 'portion': 'Unknown', 'calories': 300, 'protein_g': 10, 'carbs_g': 30, 'fat_g': 10}],
+        'total_calories': 300,
+        'total_protein_g': 10.0,
+        'total_carbs_g': 30.0,
+        'total_fat_g': 10.0,
+        'total_fiber_g': 2.0
+    }
 
 def analyze_food_image(image_data, mime_type='image/jpeg'):
     """
-    Send a food image to Gemini 2.5 Flash and get food identification + calorie estimation.
-    Returns a dict with food_items, total_calories, protein_g, carbs_g, fat_g, fiber_g.
+    Send a food image to Gemini and get food identification + calorie estimation.
+    Falls back to Groq on failure.
     """
-    configure_gemini()
-    model = genai.GenerativeModel('gemini-2.5-flash')
-
     prompt = """Analyze this food image and identify all food items visible. 
 For each food item, estimate:
 - Name of the food
@@ -55,37 +121,28 @@ Return ONLY the JSON object, no additional text or markdown formatting."""
     }
 
     try:
-        response = model.generate_content([prompt, image_part])
-        response_text = response.text.strip()
-
-        # Clean up response - remove markdown code blocks if present
-        if response_text.startswith('```'):
-            response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
-            response_text = re.sub(r'\n?```$', '', response_text)
-
-        result = json.loads(response_text)
+        response_text = _call_gemini_vision(prompt, image_part)
+        result = json.loads(_clean_json_response(response_text))
+        result['provider'] = 'Gemini 2.5 Flash'
         return result
-    except json.JSONDecodeError:
-        return {
-            'food_items': [{'name': 'Unidentified food', 'portion': 'Unknown', 'calories': 300, 'protein_g': 10, 'carbs_g': 30, 'fat_g': 10}],
-            'total_calories': 300,
-            'total_protein_g': 10.0,
-            'total_carbs_g': 30.0,
-            'total_fat_g': 10.0,
-            'total_fiber_g': 2.0
-        }
-    except Exception as e:
-        raise Exception(f"Gemini API error: {str(e)}")
-
+    except Exception as gemini_err:
+        print(f"Gemini API failed or circuit open: {gemini_err}. Falling back to Groq.")
+        try:
+            response_text = _call_groq_vision(prompt, image_data, mime_type)
+            result = json.loads(_clean_json_response(response_text))
+            result['provider'] = 'Groq (Llama 3.2 Vision)'
+            return result
+        except Exception as groq_err:
+            print(f"Groq API fallback failed: {groq_err}. Using default degradation.")
+            result = get_default_food_analysis()
+            result['provider'] = 'Default Fallback'
+            return result
 
 def analyze_food_text(text_description):
     """
-    Send a text description of a meal to Gemini 2.5 Flash and get food identification + calorie estimation.
-    Returns a dict with food_items, total_calories, protein_g, carbs_g, fat_g, fiber_g.
+    Send a text description of a meal to Gemini and get food identification + calorie estimation.
+    Falls back to Groq on failure.
     """
-    configure_gemini()
-    model = genai.GenerativeModel('gemini-2.5-flash')
-
     prompt = f"""Analyze the following text description of a meal and identify all food items.
 Text description: "{text_description}"
 
@@ -120,36 +177,28 @@ Be as accurate as possible with calorie estimations based on typical serving siz
 Return ONLY the JSON object, no additional text or markdown formatting."""
 
     try:
-        response = model.generate_content(prompt)
-        response_text = response.text.strip()
-
-        # Clean up response - remove markdown code blocks if present
-        if response_text.startswith('```'):
-            response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
-            response_text = re.sub(r'\n?```$', '', response_text)
-
-        result = json.loads(response_text)
+        response_text = _call_gemini_text(prompt)
+        result = json.loads(_clean_json_response(response_text))
+        result['provider'] = 'Gemini 2.5 Flash'
         return result
-    except json.JSONDecodeError:
-        return {
-            'food_items': [{'name': 'Unidentified food', 'portion': 'Unknown', 'calories': 300, 'protein_g': 10, 'carbs_g': 30, 'fat_g': 10}],
-            'total_calories': 300,
-            'total_protein_g': 10.0,
-            'total_carbs_g': 30.0,
-            'total_fat_g': 10.0,
-            'total_fiber_g': 2.0
-        }
-    except Exception as e:
-        raise Exception(f"Gemini API error: {str(e)}")
-
+    except Exception as gemini_err:
+        print(f"Gemini API failed or circuit open: {gemini_err}. Falling back to Groq.")
+        try:
+            response_text = _call_groq_text(prompt)
+            result = json.loads(_clean_json_response(response_text))
+            result['provider'] = 'Groq (Llama 3.3)'
+            return result
+        except Exception as groq_err:
+            print(f"Groq API fallback failed: {groq_err}. Using default degradation.")
+            result = get_default_food_analysis()
+            result['provider'] = 'Default Fallback'
+            return result
 
 def get_meal_recommendations(remaining_calories, goal, meal_type='any', dietary_preferences='none'):
     """
     Get meal recommendations from Gemini based on remaining calorie allowance.
+    Falls back to Groq on failure.
     """
-    configure_gemini()
-    model = genai.GenerativeModel('gemini-2.5-flash')
-
     prompt = f"""Based on the following constraints, suggest 3 meal options:
 
 - Remaining calorie budget for today: {remaining_calories} calories
@@ -183,16 +232,7 @@ Return the response as a valid JSON object:
 Ensure all suggested meals fit within the remaining calorie budget.
 Return ONLY the JSON object, no additional text or markdown formatting."""
 
-    try:
-        response = model.generate_content(prompt)
-        response_text = response.text.strip()
-
-        if response_text.startswith('```'):
-            response_text = re.sub(r'^```(?:json)?\n?', '', response_text)
-            response_text = re.sub(r'\n?```$', '', response_text)
-
-        return json.loads(response_text)
-    except Exception as e:
+    def default_recommendations():
         return {
             'recommendations': [
                 {
@@ -207,3 +247,21 @@ Return ONLY the JSON object, no additional text or markdown formatting."""
                 }
             ]
         }
+
+    try:
+        response_text = _call_gemini_text(prompt)
+        result = json.loads(_clean_json_response(response_text))
+        result['provider'] = 'Gemini 2.5 Flash'
+        return result
+    except Exception as gemini_err:
+        print(f"Gemini API failed or circuit open: {gemini_err}. Falling back to Groq.")
+        try:
+            response_text = _call_groq_text(prompt)
+            result = json.loads(_clean_json_response(response_text))
+            result['provider'] = 'Groq (Llama 3.3)'
+            return result
+        except Exception as groq_err:
+            print(f"Groq API fallback failed: {groq_err}. Using default degradation.")
+            result = default_recommendations()
+            result['provider'] = 'Default Fallback'
+            return result
