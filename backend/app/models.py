@@ -1,5 +1,5 @@
 from app import db
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import uuid
 
 
@@ -18,8 +18,8 @@ class User(db.Model):
     goal = db.Column(db.String(20), default='maintain')
     daily_calorie_budget = db.Column(db.Integer, default=2000)
     profile_completed = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     meals = db.relationship('Meal', backref='user', lazy=True, cascade='all, delete-orphan')
     daily_logs = db.relationship('DailyLog', backref='user', lazy=True, cascade='all, delete-orphan')
@@ -54,7 +54,7 @@ class Meal(db.Model):
     carbs_g = db.Column(db.Float, default=0)
     fat_g = db.Column(db.Float, default=0)
     fiber_g = db.Column(db.Float, default=0)
-    logged_at = db.Column(db.DateTime, default=datetime.utcnow)
+    logged_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -77,14 +77,14 @@ class DailyLog(db.Model):
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
-    log_date = db.Column(db.Date, nullable=False, default=date.today)
+    log_date = db.Column(db.Date, nullable=False, default=lambda: datetime.now(timezone.utc).date())
     total_calories = db.Column(db.Integer, default=0)
     total_protein_g = db.Column(db.Float, default=0)
     total_carbs_g = db.Column(db.Float, default=0)
     total_fat_g = db.Column(db.Float, default=0)
     budget = db.Column(db.Integer, default=2000)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (db.UniqueConstraint('user_id', 'log_date', name='uq_user_date'),)
 

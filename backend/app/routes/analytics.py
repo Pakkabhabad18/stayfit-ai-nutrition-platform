@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import Meal, DailyLog, User
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from sqlalchemy import func
 
 analytics_bp = Blueprint('analytics', __name__)
@@ -15,9 +15,10 @@ def get_daily_summary():
     user_id = get_jwt_identity()
     user = User.query.get(user_id)
 
-    today = date.today()
-    start = datetime.combine(today, datetime.min.time())
-    end = datetime.combine(today, datetime.max.time())
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date()
+    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
 
     meals = Meal.query.filter(
         Meal.user_id == user_id,
@@ -66,10 +67,11 @@ def get_weekly_trends():
     days_with_meals = 0
     total_calories_logged = 0
     days_on_track = 0
+    now_utc = datetime.now(timezone.utc)
     for i in range(6, -1, -1):
-        day = date.today() - timedelta(days=i)
-        start = datetime.combine(day, datetime.min.time())
-        end = datetime.combine(day, datetime.max.time())
+        day = now_utc.date() - timedelta(days=i)
+        start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        end = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
 
         meals = Meal.query.filter(
             Meal.user_id == user_id,
@@ -120,7 +122,7 @@ def get_progress():
         return jsonify({'error': 'User not found'}), 404
 
     # Get data for the last 30 days
-    thirty_days_ago = date.today() - timedelta(days=30)
+    thirty_days_ago = datetime.now(timezone.utc).date() - timedelta(days=30)
 
     daily_logs = DailyLog.query.filter(
         DailyLog.user_id == user_id,

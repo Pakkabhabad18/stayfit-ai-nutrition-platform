@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import text
 from app import db
 from app.models import Meal, DailyLog, User
@@ -7,13 +7,13 @@ from app.models import Meal, DailyLog, User
 def update_daily_log(user_id, log_date=None):
     """Recalculate and update the daily log for a user."""
     if log_date is None:
-        log_date = date.today()
+        log_date = datetime.now(timezone.utc).date()
 
     user = User.query.get(user_id)
 
     # Get all meals for this date
-    start = datetime.combine(log_date, datetime.min.time())
-    end = datetime.combine(log_date, datetime.max.time())
+    start = datetime.combine(log_date, datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(log_date, datetime.max.time(), tzinfo=timezone.utc)
 
     meals = Meal.query.filter(
         Meal.user_id == user_id,

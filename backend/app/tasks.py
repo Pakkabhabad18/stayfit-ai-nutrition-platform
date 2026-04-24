@@ -9,18 +9,21 @@ from app import db
 from app.models import Meal, User
 from app.services.gemini_service import analyze_food_image, analyze_food_text
 from app.services.log_service import update_daily_log
+import logging
+
+logger = logging.getLogger(__name__)
 
 @shared_task(ignore_result=False)
 def process_meal_analysis(user_id, meal_type, filename):
     """
     Background task to analyze food image, save to DB, and update daily log.
     """
-    print(f"[CELERY] Starting analysis for user {user_id}, file: {filename}")
+    logger.info("Starting analysis", extra={'user_id': user_id, 'meal_filename': filename})
     filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
     
     try:
         # 1. Read and resize image for Gemini analysis
-        print(f"[CELERY] Reading image from {filepath}...")
+        logger.debug("Reading image", extra={'filepath': filepath})
         with open(filepath, 'rb') as f:
             img = Image.open(f)
             img.thumbnail((512, 512))
@@ -32,10 +35,10 @@ def process_meal_analysis(user_id, meal_type, filename):
         mime_type = 'image/jpeg'
 
         # 2. Analyze with Gemini
-        print("[CELERY] Calling AI API... (this may take 10-15 seconds)")
+        logger.info("Calling AI API")
         analysis = analyze_food_image(image_data, mime_type)
         provider = analysis.get('provider', 'AI')
-        print(f"[CELERY] {provider} analysis complete: {json.dumps(analysis)[:100]}...")
+        logger.info("AI analysis complete", extra={'provider': provider})
 
         # 3. Create and save Meal record
         print("[CELERY] Saving meal to database...")
@@ -67,10 +70,7 @@ def process_meal_analysis(user_id, meal_type, filename):
         }
 
     except Exception as e:
-        import traceback
-        error_msg = f"TASK ERROR: {str(e)}\n{traceback.format_exc()}"
-        with open('error_log.txt', 'a') as f:
-            f.write(error_msg + "\n")
+        logger.error("TASK ERROR", exc_info=True, extra={'user_id': user_id, 'meal_filename': filename})
         return {
             'status': 'failed',
             'error': str(e)
@@ -81,14 +81,14 @@ def process_text_analysis(user_id, meal_type, text_description):
     """
     Background task to analyze food text description, save to DB, and update daily log.
     """
-    print(f"[CELERY] Starting text analysis for user {user_id}")
+    logger.info("Starting text analysis", extra={'user_id': user_id})
     
     try:
         # 1. Analyze with Gemini
-        print("[CELERY] Calling AI API for text... (this may take 5-10 seconds)")
+        logger.info("Calling AI API for text")
         analysis = analyze_food_text(text_description)
         provider = analysis.get('provider', 'AI')
-        print(f"[CELERY] {provider} text analysis complete: {json.dumps(analysis)[:100]}...")
+        logger.info("AI text analysis complete", extra={'provider': provider})
 
         # 2. Create and save Meal record
         print("[CELERY] Saving meal to database...")
@@ -120,10 +120,7 @@ def process_text_analysis(user_id, meal_type, text_description):
         }
 
     except Exception as e:
-        import traceback
-        error_msg = f"TASK ERROR (Text): {str(e)}\n{traceback.format_exc()}"
-        with open('error_log.txt', 'a') as f:
-            f.write(error_msg + "\n")
+        logger.error("TASK ERROR (Text)", exc_info=True, extra={'user_id': user_id})
         return {
             'status': 'failed',
             'error': str(e)

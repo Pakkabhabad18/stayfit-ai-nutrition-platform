@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models import User, Meal
 from app.services.gemini_service import get_meal_recommendations
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 recommendations_bp = Blueprint('recommendations', __name__)
 
@@ -18,9 +18,10 @@ def get_recommendations():
         return jsonify({'error': 'User not found'}), 404
 
     # Calculate remaining calories for today
-    today = date.today()
-    start = datetime.combine(today, datetime.min.time())
-    end = datetime.combine(today, datetime.max.time())
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date()
+    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
 
     meals = Meal.query.filter(
         Meal.user_id == user_id,
