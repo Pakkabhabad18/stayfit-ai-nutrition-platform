@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from sqlalchemy import text
 from app import db
 from app.models import Meal, DailyLog, User
@@ -15,8 +15,8 @@ def update_daily_log(user_id, log_date=None):
     user = UserRepository.get_by_id(user_id)
 
     # Get all meals for this date
-    start = datetime.combine(log_date, datetime.min.time())
-    end = datetime.combine(log_date, datetime.max.time())
+    start = datetime.combine(log_date, datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(log_date, datetime.max.time(), tzinfo=timezone.utc)
 
     meals = MealRepository.get_by_user_and_date_range(user_id, start, end)
 

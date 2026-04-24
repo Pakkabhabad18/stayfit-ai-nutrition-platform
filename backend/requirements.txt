@@ -13,3 +13,6 @@ redis==5.0.1
 groq==1.2.0
 tenacity==9.1.4
 pycircuitbreaker==0.5.0
+sentry-sdk[flask]==1.40.1
+sentry-sdk[celery]==1.40.1
+python-json-logger==2.0.7

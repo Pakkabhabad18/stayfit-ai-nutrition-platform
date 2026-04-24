@@ -4,7 +4,7 @@ from app.models import User, Meal
 from app.repositories.user_repository import UserRepository
 from app.repositories.meal_repository import MealRepository
 from app.services.gemini_service import get_meal_recommendations
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 recommendations_bp = Blueprint('recommendations', __name__)
 

@@ -9,7 +9,7 @@ from app.repositories.daily_log_repository import DailyLogRepository
 from app.services.gemini_service import analyze_food_image, analyze_food_text
 from app.tasks import process_meal_analysis, process_text_analysis
 from celery.result import AsyncResult
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import os
 import uuid
 import base64
@@ -19,6 +19,9 @@ from sqlalchemy import text
 from PIL import Image
 import io
 from app.services.log_service import update_daily_log
+import logging
+
+logger = logging.getLogger(__name__)
 
 meals_bp = Blueprint('meals', __name__)
 
@@ -74,11 +77,7 @@ def upload_meal():
         }), 202
 
     except Exception as e:
-        import traceback
-        with open('error_log.txt', 'a') as f:
-            f.write("UPLOAD MEAL CRASH:\n")
-            f.write(traceback.format_exc())
-            f.write("\n")
+        logger.error("UPLOAD MEAL CRASH", exc_info=True, extra={'user_id': user_id, 'meal_type': meal_type})
         return jsonify({'error': str(e)}), 500
 
 
@@ -134,11 +133,7 @@ def log_meal_text():
         }), 202
 
     except Exception as e:
-        import traceback
-        with open('error_log.txt', 'a') as f:
-            f.write("LOG MEAL TEXT CRASH:\n")
-            f.write(traceback.format_exc())
-            f.write("\n")
+        logger.error("LOG MEAL TEXT CRASH", exc_info=True, extra={'user_id': user_id, 'meal_type': meal_type})
         return jsonify({'error': str(e)}), 500
 
 @meals_bp.route('/images/<filename>', methods=['GET'])

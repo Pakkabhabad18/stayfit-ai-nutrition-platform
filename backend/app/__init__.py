@@ -5,14 +5,44 @@ from flask_sqlalchemy import SQLAlchemy
 from app.config import Config
 from app.celery_utils import celery_init_app
 import os
+import logging
+from pythonjsonlogger import jsonlogger
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+from sentry_sdk.integrations.celery import CeleryIntegration
 
 db = SQLAlchemy()
 jwt = JWTManager()
 
+def setup_logging():
+    logger = logging.getLogger()
+    logHandler = logging.StreamHandler()
+    formatter = jsonlogger.JsonFormatter(
+        '%(asctime)s %(levelname)s %(name)s %(message)s'
+    )
+    logHandler.setFormatter(formatter)
+    logger.addHandler(logHandler)
+    logger.setLevel(logging.INFO)
 
 def create_app(service_name='all'):
     app = Flask(__name__)
     app.config.from_object(Config)
+
+    # Initialize Sentry
+    if app.config.get('SENTRY_DSN'):
+        sentry_sdk.init(
+            dsn=app.config['SENTRY_DSN'],
+            integrations=[
+                FlaskIntegration(),
+                CeleryIntegration(),
+            ],
+            traces_sample_rate=1.0,
+            profiles_sample_rate=1.0,
+            environment=os.getenv('FLASK_ENV', 'production')
+        )
+
+    # Setup Logging
+    setup_logging()
 
     # Initialize extensions
     db.init_app(app)

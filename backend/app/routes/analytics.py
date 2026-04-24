@@ -64,6 +64,7 @@ def get_weekly_trends():
     days_with_meals = 0
     total_calories_logged = 0
     days_on_track = 0
+    now_utc = datetime.now(timezone.utc)
     for i in range(6, -1, -1):
         day = datetime.utcnow().date() - timedelta(days=i)
         start = datetime.combine(day, datetime.min.time())

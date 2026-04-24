@@ -10,6 +10,7 @@ import MealLogger from './pages/MealLogger';
 import Analytics from './pages/Analytics';
 import Recommendations from './pages/Recommendations';
 import Profile from './pages/Profile';
+import * as Sentry from "@sentry/react";
 import './index.css';
 
 function ProtectedRoute({ children }) {
@@ -70,7 +71,9 @@ export default function App() {
     <GoogleOAuthProvider clientId={clientId}>
       <BrowserRouter>
         <AuthProvider>
-          <AppRoutes />
+          <Sentry.ErrorBoundary fallback={<p>Something went wrong</p>}>
+            <AppRoutes />
+          </Sentry.ErrorBoundary>
         </AuthProvider>
       </BrowserRouter>
     </GoogleOAuthProvider>
