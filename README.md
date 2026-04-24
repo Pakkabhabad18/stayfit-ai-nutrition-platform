@@ -79,11 +79,13 @@ Create `backend/.env` from `.env.example`:
 | `SECRET_KEY` | Flask secret key |
 | `JWT_SECRET_KEY` | JWT signing key |
 | `GOOGLE_CLIENT_ID`| Google OAuth2 Client ID (Backend) |
+| `SENTRY_DSN` | Sentry DSN |
 
 *Also create a `frontend/.env` file containing:*
 | Variable | Description |
 |----------|-------------|
 | `VITE_GOOGLE_CLIENT_ID`| Google OAuth2 Client ID (Frontend) |
+| `VITE_SENTRY_DSN` | Sentry DSN |
 
 ## 📐 Architectural Patterns Implemented
 
