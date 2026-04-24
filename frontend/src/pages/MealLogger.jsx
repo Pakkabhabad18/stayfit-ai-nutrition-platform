@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { uploadMeal, getTodayMeals, deleteMeal, getTaskStatus } from '../services/api';
+import { uploadMeal, getTodayMeals, deleteMeal, getTaskStatus, logMealText } from '../services/api';
 import { Camera, Upload, Trash2, Sparkles, X } from 'lucide-react';
 import { useEffect } from 'react';
 
@@ -11,6 +11,8 @@ export default function MealLogger() {
   const [analysis, setAnalysis] = useState(null);
   const [todayMeals, setTodayMeals] = useState(null);
   const [dragover, setDragover] = useState(false);
+  const [logMode, setLogMode] = useState('photo');
+  const [textDescription, setTextDescription] = useState('');
   const fileInputRef = useRef(null);
 
   const getUserId = () => {
@@ -104,6 +106,7 @@ export default function MealLogger() {
     setImage(null);
     setPreview(null);
     saveAnalysis(null);
+    setTextDescription('');
     localStorage.removeItem(`lastPreview_${userId}`);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -151,6 +154,31 @@ export default function MealLogger() {
       console.error('Polling failed:', err);
       // Don't stop on a single network error, try again
       setTimeout(() => pollTaskStatus(taskId), 2000);
+    }
+  };
+
+  const handleTextUpload = async () => {
+    if (!textDescription.trim()) return;
+    setUploading(true);
+    try {
+      const res = await logMealText({
+        text: textDescription,
+        meal_type: mealType
+      });
+      
+      if (res.status === 202) {
+        // Start polling for background task completion
+        pollTaskStatus(res.data.task_id);
+      } else {
+        // Fallback for direct response if any
+        setAnalysis(res.data.analysis);
+        loadTodayMeals();
+        setUploading(false);
+      }
+    } catch (err) {
+      console.error('Text logging failed:', err);
+      alert('Failed to start text analysis. Please try again.');
+      setUploading(false);
     }
   };
 
@@ -208,7 +236,25 @@ export default function MealLogger() {
         {/* Upload Section */}
         <div className="card">
           <div className="card-header">
-            <h3 className="card-title">Upload Meal Photo</h3>
+            <h3 className="card-title">Log Your Meal</h3>
+          </div>
+
+          {/* Toggle buttons for Photo vs Text */}
+          <div className="log-mode-toggle" style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+            <button 
+              className={`btn ${logMode === 'photo' ? 'btn-primary' : 'btn-outline'}`} 
+              onClick={() => { setLogMode('photo'); setAnalysis(null); }}
+              style={{ flex: 1 }}
+            >
+              📸 Photo
+            </button>
+            <button 
+              className={`btn ${logMode === 'text' ? 'btn-primary' : 'btn-outline'}`} 
+              onClick={() => { setLogMode('text'); setAnalysis(null); }}
+              style={{ flex: 1 }}
+            >
+              ✍️ Text Entry
+            </button>
           </div>
 
           {/* Meal Type Selector */}
@@ -224,62 +270,106 @@ export default function MealLogger() {
             ))}
           </div>
 
-          {/* Upload Zone */}
-          {!preview ? (
-            <div
-              className={`meal-upload-zone ${dragover ? 'dragover' : ''}`}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleFileChange}
+          {/* Input Zone */}
+          {logMode === 'text' ? (
+            <div className="meal-text-zone" style={{ marginTop: '15px' }}>
+              <textarea
+                placeholder="E.g., I had a bowl of oatmeal with a handful of almonds and a sliced banana."
+                value={textDescription}
+                onChange={(e) => setTextDescription(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '120px',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-card)',
+                  color: 'var(--text-primary)',
+                  resize: 'vertical',
+                  marginBottom: '15px',
+                  fontFamily: 'inherit'
+                }}
               />
-              <div className="upload-icon"><Camera size={48} /></div>
-              <p className="upload-text">Click or drag to upload a meal photo</p>
-              <p className="upload-hint">Supports JPG, PNG, WebP • Max 16MB</p>
+              {!analysis && (
+                <button
+                  className="btn btn-primary btn-full"
+                  onClick={handleTextUpload}
+                  disabled={uploading || !textDescription.trim()}
+                >
+                  {uploading ? (
+                    <>
+                      <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }}></div>
+                      Analyzing Text...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={18} />
+                      Analyze Text with AI
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           ) : (
-            <div style={{ position: 'relative', textAlign: 'center' }}>
-              <button
-                onClick={clearImage}
-                style={{
-                  position: 'absolute', top: 8, right: 8, zIndex: 2,
-                  background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%',
-                  width: 32, height: 32, cursor: 'pointer', color: 'white',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}
-              >
-                <X size={16} />
-              </button>
-              <img src={preview} alt="Meal preview" className="meal-preview" />
-            </div>
-          )}
-
-          {/* Upload Button */}
-          {preview && !analysis && (
-            <button
-              className="btn btn-primary btn-full"
-              onClick={handleUpload}
-              disabled={uploading}
-              style={{ marginTop: 16 }}
-            >
-              {uploading ? (
-                <>
-                  <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }}></div>
-                  Analyzing with AI...
-                </>
+            <>
+              {/* Upload Zone */}
+              {!preview ? (
+                <div
+                  className={`meal-upload-zone ${dragover ? 'dragover' : ''}`}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleFileChange}
+                  />
+                  <div className="upload-icon"><Camera size={48} /></div>
+                  <p className="upload-text">Click or drag to upload a meal photo</p>
+                  <p className="upload-hint">Supports JPG, PNG, WebP • Max 16MB</p>
+                </div>
               ) : (
-                <>
-                  <Sparkles size={18} />
-                  Analyze with AI
-                </>
+                <div style={{ position: 'relative', textAlign: 'center' }}>
+                  <button
+                    onClick={clearImage}
+                    style={{
+                      position: 'absolute', top: 8, right: 8, zIndex: 2,
+                      background: 'rgba(0,0,0,0.6)', border: 'none', borderRadius: '50%',
+                      width: 32, height: 32, cursor: 'pointer', color: 'white',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                  >
+                    <X size={16} />
+                  </button>
+                  <img src={preview} alt="Meal preview" className="meal-preview" />
+                </div>
               )}
-            </button>
+
+              {/* Upload Button */}
+              {preview && !analysis && (
+                <button
+                  className="btn btn-primary btn-full"
+                  onClick={handleUpload}
+                  disabled={uploading}
+                  style={{ marginTop: 16 }}
+                >
+                  {uploading ? (
+                    <>
+                      <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }}></div>
+                      Analyzing with AI...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={18} />
+                      Analyze with AI
+                    </>
+                  )}
+                </button>
+              )}
+            </>
           )}
 
           {/* Analysis Result */}

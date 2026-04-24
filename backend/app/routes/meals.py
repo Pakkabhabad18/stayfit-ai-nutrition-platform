@@ -3,8 +3,8 @@ from flask import Blueprint, request, jsonify, current_app, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import Meal, DailyLog, User
-from app.services.gemini_service import analyze_food_image
-from app.tasks import process_meal_analysis
+from app.services.gemini_service import analyze_food_image, analyze_food_text
+from app.tasks import process_meal_analysis, process_text_analysis
 from celery.result import AsyncResult
 from datetime import datetime, date
 import os
@@ -102,6 +102,41 @@ def get_task_status(task_id):
 
     return jsonify(response), 200
 
+@meals_bp.route('/log_text', methods=['POST'])
+@jwt_required()
+def log_meal_text():
+    """Log a meal using a text description."""
+    user_id = get_jwt_identity()
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No JSON data provided'}), 400
+
+    meal_type = data.get('meal_type', 'snack')
+    text_description = data.get('text', '')
+
+    if meal_type not in ['breakfast', 'lunch', 'dinner', 'snack']:
+        return jsonify({'error': 'Invalid meal type'}), 400
+
+    if not text_description.strip():
+        return jsonify({'error': 'Text description cannot be empty'}), 400
+
+    try:
+        # Trigger background text analysis
+        task = process_text_analysis.delay(user_id, meal_type, text_description)
+
+        return jsonify({
+            'message': 'Text analysis started in background',
+            'task_id': task.id
+        }), 202
+
+    except Exception as e:
+        import traceback
+        with open('error_log.txt', 'a') as f:
+            f.write("LOG MEAL TEXT CRASH:\n")
+            f.write(traceback.format_exc())
+            f.write("\n")
+        return jsonify({'error': str(e)}), 500
 
 @meals_bp.route('/images/<filename>', methods=['GET'])
 def get_image(filename):
