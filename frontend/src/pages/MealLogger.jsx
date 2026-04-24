@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { uploadMeal, getTodayMeals, deleteMeal } from '../services/api';
+import { uploadMeal, getTodayMeals, deleteMeal, getTaskStatus } from '../services/api';
 import { Camera, Upload, Trash2, Sparkles, X } from 'lucide-react';
 import { useEffect } from 'react';
 
@@ -13,9 +13,49 @@ export default function MealLogger() {
   const [dragover, setDragover] = useState(false);
   const fileInputRef = useRef(null);
 
+  const getUserId = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      // Check for various common ID field names
+      return user.id || user._id || user.user_id || 'guest';
+    } catch (e) {
+      return 'guest';
+    }
+  };
+
   useEffect(() => {
     loadTodayMeals();
+    // Restore analysis and preview from localStorage if they exist (user-specific)
+    const userId = getUserId();
+    
+    const savedAnalysis = localStorage.getItem(`lastAnalysis_${userId}`);
+    const savedPreview = localStorage.getItem(`lastPreview_${userId}`);
+    
+    if (savedAnalysis) {
+      try {
+        setAnalysis(JSON.parse(savedAnalysis));
+        if (savedPreview) setPreview(savedPreview);
+      } catch (e) {
+        localStorage.removeItem(`lastAnalysis_${userId}`);
+        localStorage.removeItem(`lastPreview_${userId}`);
+      }
+    }
   }, []);
+
+  const saveAnalysis = (data, previewData = null) => {
+    setAnalysis(data);
+    const userId = getUserId();
+
+    if (data) {
+      localStorage.setItem(`lastAnalysis_${userId}`, JSON.stringify(data));
+      if (previewData) {
+        localStorage.setItem(`lastPreview_${userId}`, previewData);
+      }
+    } else {
+      localStorage.removeItem(`lastAnalysis_${userId}`);
+      localStorage.removeItem(`lastPreview_${userId}`);
+    }
+  };
 
   const loadTodayMeals = async () => {
     try {
@@ -32,7 +72,7 @@ export default function MealLogger() {
       const reader = new FileReader();
       reader.onloadend = () => setPreview(reader.result);
       reader.readAsDataURL(file);
-      setAnalysis(null);
+      saveAnalysis(null);
     }
   };
 
@@ -59,10 +99,59 @@ export default function MealLogger() {
   };
 
   const clearImage = () => {
+    const userId = getUserId();
+    
     setImage(null);
     setPreview(null);
-    setAnalysis(null);
+    saveAnalysis(null);
+    localStorage.removeItem(`lastPreview_${userId}`);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const pollTaskStatus = async (taskId) => {
+    try {
+      const res = await getTaskStatus(taskId);
+      const { status, result, error } = res.data;
+
+      // SUCCESS is the standard Celery state
+      if (status === 'SUCCESS') {
+        // Our task returns { status: 'completed', analysis: { ... }, ... }
+        if (result) {
+          saveAnalysis(result.analysis, preview);
+          
+          // In-Band Notification Engine: Read alerts directly from the response!
+          if (result.alerts && result.alerts.length > 0) {
+            import('react-hot-toast').then(({ default: toast }) => {
+              result.alerts.forEach((alertMsg) => {
+                toast(alertMsg, {
+                  duration: 8000,
+                  icon: '🎉',
+                  style: {
+                    border: '2px solid var(--accent-red)',
+                    padding: '16px',
+                    color: 'var(--text-primary)',
+                    background: 'var(--bg-card)'
+                  }
+                });
+              });
+            });
+          }
+          loadTodayMeals();
+        }
+        setUploading(false);
+      } else if (status === 'FAILURE' || status === 'REVOKED') {
+        console.error('Analysis failed:', error);
+        alert(`Analysis failed: ${error || 'The background task was cancelled or failed.'}`);
+        setUploading(false);
+      } else {
+        // PENDING or STARTED: poll again in 1 second
+        setTimeout(() => pollTaskStatus(taskId), 1000);
+      }
+    } catch (err) {
+      console.error('Polling failed:', err);
+      // Don't stop on a single network error, try again
+      setTimeout(() => pollTaskStatus(taskId), 2000);
+    }
   };
 
   const handleUpload = async () => {
@@ -74,31 +163,19 @@ export default function MealLogger() {
       formData.append('meal_type', mealType);
 
       const res = await uploadMeal(formData);
-      setAnalysis(res.data.analysis);
       
-      // In-Band Notification Engine: Read alerts directly from the response!
-      if (res.data.alerts && res.data.alerts.length > 0) {
-        import('react-hot-toast').then(({ default: toast }) => {
-          res.data.alerts.forEach((alertMsg) => {
-            toast(alertMsg, {
-              duration: 8000,
-              icon: '🎉',
-              style: {
-                border: '2px solid var(--accent-red)',
-                padding: '16px',
-                color: 'var(--text-primary)',
-                background: 'var(--bg-card)'
-              }
-            });
-          });
-        });
+      if (res.status === 202) {
+        // Start polling for background task completion
+        pollTaskStatus(res.data.task_id);
+      } else {
+        // Fallback for direct response if any
+        setAnalysis(res.data.analysis);
+        loadTodayMeals();
+        setUploading(false);
       }
-      
-      loadTodayMeals();
     } catch (err) {
       console.error('Upload failed:', err);
-      alert('Failed to analyze meal. Please try again.');
-    } finally {
+      alert('Failed to start meal analysis. Please try again.');
       setUploading(false);
     }
   };
@@ -213,7 +290,7 @@ export default function MealLogger() {
                 <div>
                   <h4 style={{ fontWeight: 600 }}>AI Analysis Complete</h4>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Powered by Gemini 2.5 Flash
+                    Powered by Gemini 1.5 Flash
                   </p>
                 </div>
               </div>

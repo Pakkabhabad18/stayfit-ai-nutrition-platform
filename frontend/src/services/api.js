@@ -45,6 +45,7 @@ export const uploadMeal = (formData) =>
   });
 export const getTodayMeals = () => api.get('/meals/today');
 export const deleteMeal = (id) => api.delete(`/meals/${id}`);
+export const getTaskStatus = (taskId) => api.get(`/meals/task-status/${taskId}`);
 
 // Analytics
 export const getDailySummary = () => api.get('/analytics/daily');

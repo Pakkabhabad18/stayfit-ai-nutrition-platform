@@ -3,6 +3,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from flask_sqlalchemy import SQLAlchemy
 from app.config import Config
+from app.celery_utils import celery_init_app
 import os
 
 db = SQLAlchemy()
@@ -43,5 +44,8 @@ def create_app(service_name='all'):
     # Create tables
     with app.app_context():
         db.create_all()
+
+    # Initialize Celery
+    celery_init_app(app)
 
     return app

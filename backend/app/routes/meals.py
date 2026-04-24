@@ -4,6 +4,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import Meal, DailyLog, User
 from app.services.gemini_service import analyze_food_image
+from app.tasks import process_meal_analysis
+from celery.result import AsyncResult
 from datetime import datetime, date
 import os
 import uuid
@@ -13,78 +15,11 @@ from sqlalchemy import text
 # Add Pillow for image resizing
 from PIL import Image
 import io
+from app.services.log_service import update_daily_log
 
 meals_bp = Blueprint('meals', __name__)
 
 
-def update_daily_log(user_id, log_date=None):
-    """Recalculate and update the daily log for a user."""
-    if log_date is None:
-        log_date = date.today()
-
-    user = User.query.get(user_id)
-
-    # Get all meals for this date
-    start = datetime.combine(log_date, datetime.min.time())
-    end = datetime.combine(log_date, datetime.max.time())
-
-    meals = Meal.query.filter(
-        Meal.user_id == user_id,
-        Meal.logged_at >= start,
-        Meal.logged_at <= end
-    ).all()
-
-    total_cal = sum(m.total_calories for m in meals)
-    total_protein = sum(m.protein_g or 0 for m in meals)
-    total_carbs = sum(m.carbs_g or 0 for m in meals)
-    total_fat = sum(m.fat_g or 0 for m in meals)
-
-    daily_log = DailyLog.query.filter_by(user_id=user_id, log_date=log_date).first()
-
-    old_cal = 0
-    budget = user.daily_calorie_budget if user else 2000
-    
-    if daily_log:
-        old_cal = daily_log.total_calories
-        daily_log.total_calories = total_cal
-        daily_log.total_protein_g = total_protein
-        daily_log.total_carbs_g = total_carbs
-        daily_log.total_fat_g = total_fat
-        daily_log.budget = budget
-    else:
-        daily_log = DailyLog(
-            user_id=user_id,
-            log_date=log_date,
-            total_calories=total_cal,
-            total_protein_g=total_protein,
-            total_carbs_g=total_carbs,
-            total_fat_g=total_fat,
-            budget=budget
-        )
-        db.session.add(daily_log)
-
-    db.session.commit()
-    triggered_alerts = []
-
-    # Pub/Sub Publisher: Fire events when crossing critical thresholds independently
-    thresholds = [
-        (0.5, "You have reached 50% of your daily calorie intake! 🏃‍♂️"),
-        (0.8, "You have hit 80% of your daily calorie budget! ⚠️"),
-        (1.0, "You have reached 100% of your calorie limit for today! 🛑")
-    ]
-    
-    for pct, msg in thresholds:
-        if old_cal < (budget * pct) and total_cal >= (budget * pct):
-            triggered_alerts.append(msg)
-            payload = json.dumps({
-                "user_id": user_id,
-                "message": msg
-            })
-            # Use Postgres NOTIFY for decoupled microservices real-time communication
-            db.session.execute(text(f"NOTIFY calorie_alerts, '{payload}'"))
-            db.session.commit()
-
-    return daily_log, triggered_alerts
 
 
 @meals_bp.route('/upload', methods=['POST'])
@@ -126,33 +61,14 @@ def upload_meal():
     mime_type = 'image/jpeg'
 
     try:
-        # Analyze with Gemini
-        analysis = analyze_food_image(image_data, mime_type)
-
-        meal = Meal(
-            user_id=user_id,
-            meal_type=meal_type,
-            image_url=f'/api/meals/images/{filename}',
-            food_items=analysis.get('food_items', []),
-            total_calories=analysis.get('total_calories', 0),
-            protein_g=analysis.get('total_protein_g', 0),
-            carbs_g=analysis.get('total_carbs_g', 0),
-            fat_g=analysis.get('total_fat_g', 0),
-            fiber_g=analysis.get('total_fiber_g', 0),
-        )
-
-        db.session.add(meal)
-        db.session.commit()
-
-        # Update daily log and capture new alerts
-        daily_log, alerts = update_daily_log(user_id)
+        # Trigger background analysis
+        task = process_meal_analysis.delay(user_id, meal_type, filename)
 
         return jsonify({
-            'message': 'Meal logged successfully',
-            'meal': meal.to_dict(),
-            'analysis': analysis,
-            'alerts': alerts
-        }), 201
+            'message': 'Analysis started in background',
+            'task_id': task.id,
+            'image_url': f'/api/meals/images/{filename}'
+        }), 202
 
     except Exception as e:
         import traceback
@@ -161,6 +77,30 @@ def upload_meal():
             f.write(traceback.format_exc())
             f.write("\n")
         return jsonify({'error': str(e)}), 500
+
+
+@meals_bp.route('/task-status/<task_id>', methods=['GET'])
+@jwt_required()
+def get_task_status(task_id):
+    """Check the status of a background analysis task."""
+    result = AsyncResult(task_id)
+    
+    response = {
+        'status': result.status,
+        'task_id': task_id
+    }
+
+    if result.ready():
+        if result.successful():
+            response.update({
+                'result': result.result
+            })
+        else:
+            response.update({
+                'error': str(result.result)
+            })
+
+    return jsonify(response), 200
 
 
 @meals_bp.route('/images/<filename>', methods=['GET'])

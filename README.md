@@ -17,9 +17,11 @@ project3/
 ```bash
 # Create database
 psql -U postgres -c "CREATE DATABASE stayfit;"
+psql -c "CREATE DATABASE stayfit;" #(for Mac users)
 
 # Run schema
 psql -U postgres -d stayfit -f database/init.sql
+psql -d stayfit -f database/init.sql #(for Mac users)
 ```
 
 ### 2. Backend (Python)
@@ -34,10 +36,23 @@ venv\Scripts\activate       # Windows
 # Install dependencies
 pip install -r requirements.txt
 
-
-
 # Run microservices cluster (API Gateway + 3 Services)
 python start_microservices.py
+
+# Install 
+brew install redis #Mac Users
+brew services start redis #Mac Users
+
+# second terminal
+cd backend 
+
+source venv/bin/activate
+
+celery -A run_celery.celery worker --loglevel=info --pool=solo
+
+# third terminal (to start frontend)
+cd frontend
+npm run dev
 ```
 The API Gateway runs on **http://localhost:5000**, routing to internal ports (5001-5003).
 
