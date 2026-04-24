@@ -77,7 +77,7 @@ class DailyLog(db.Model):
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
-    log_date = db.Column(db.Date, nullable=False, default=date.today)
+    log_date = db.Column(db.Date, nullable=False, default=lambda: datetime.utcnow().date())
     total_calories = db.Column(db.Integer, default=0)
     total_protein_g = db.Column(db.Float, default=0)
     total_carbs_g = db.Column(db.Float, default=0)

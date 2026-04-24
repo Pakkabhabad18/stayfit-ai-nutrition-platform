@@ -1,7 +1,9 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app import db
 from app.models import Meal, DailyLog, User
+from app.repositories.user_repository import UserRepository
+from app.repositories.meal_repository import MealRepository
+from app.repositories.daily_log_repository import DailyLogRepository
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 
@@ -13,17 +15,13 @@ analytics_bp = Blueprint('analytics', __name__)
 def get_daily_summary():
     """Get daily calorie summary for today."""
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = UserRepository.get_by_id(user_id)
 
-    today = date.today()
+    today = datetime.utcnow().date()
     start = datetime.combine(today, datetime.min.time())
     end = datetime.combine(today, datetime.max.time())
 
-    meals = Meal.query.filter(
-        Meal.user_id == user_id,
-        Meal.logged_at >= start,
-        Meal.logged_at <= end
-    ).all()
+    meals = MealRepository.get_by_user_and_date_range(user_id, start, end)
 
     total_calories = sum(m.total_calories for m in meals)
     budget = user.daily_calorie_budget if user else 2000
@@ -59,7 +57,7 @@ def get_daily_summary():
 def get_weekly_trends():
     """Get weekly calorie trends for the past 7 days."""
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = UserRepository.get_by_id(user_id)
     budget = user.daily_calorie_budget if user else 2000
 
     trends = []
@@ -67,15 +65,11 @@ def get_weekly_trends():
     total_calories_logged = 0
     days_on_track = 0
     for i in range(6, -1, -1):
-        day = date.today() - timedelta(days=i)
+        day = datetime.utcnow().date() - timedelta(days=i)
         start = datetime.combine(day, datetime.min.time())
         end = datetime.combine(day, datetime.max.time())
 
-        meals = Meal.query.filter(
-            Meal.user_id == user_id,
-            Meal.logged_at >= start,
-            Meal.logged_at <= end
-        ).all()
+        meals = MealRepository.get_by_user_and_date_range(user_id, start, end)
 
         total_cal = sum(m.total_calories for m in meals)
         logged = len(meals) > 0
@@ -114,18 +108,15 @@ def get_weekly_trends():
 def get_progress():
     """Get overall progress toward dietary goals."""
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = UserRepository.get_by_id(user_id)
 
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
     # Get data for the last 30 days
-    thirty_days_ago = date.today() - timedelta(days=30)
+    thirty_days_ago = datetime.utcnow().date() - timedelta(days=30)
 
-    daily_logs = DailyLog.query.filter(
-        DailyLog.user_id == user_id,
-        DailyLog.log_date >= thirty_days_ago
-    ).order_by(DailyLog.log_date).all()
+    daily_logs = DailyLogRepository.get_recent_logs(user_id, thirty_days_ago)
 
     days_logged = len(daily_logs)
     if days_logged == 0:

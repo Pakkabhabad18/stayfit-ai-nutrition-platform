@@ -7,6 +7,7 @@ from celery import shared_task
 from flask import current_app
 from app import db
 from app.models import Meal, User
+from app.repositories.meal_repository import MealRepository
 from app.services.gemini_service import analyze_food_image, analyze_food_text
 from app.services.log_service import update_daily_log
 
@@ -51,8 +52,7 @@ def process_meal_analysis(user_id, meal_type, filename):
             fiber_g=analysis.get('total_fiber_g', 0),
         )
 
-        db.session.add(meal)
-        db.session.commit()
+        MealRepository.create(meal)
 
         # 4. Update daily log and capture new alerts
         print("[CELERY] Updating daily log...")
@@ -104,8 +104,7 @@ def process_text_analysis(user_id, meal_type, text_description):
             fiber_g=analysis.get('total_fiber_g', 0),
         )
 
-        db.session.add(meal)
-        db.session.commit()
+        MealRepository.create(meal)
 
         # 3. Update daily log and capture new alerts
         print("[CELERY] Updating daily log...")
