@@ -10,6 +10,7 @@ from app.models import Meal, User
 from app.repositories.meal_repository import MealRepository
 from app.services.gemini_service import analyze_food_image, analyze_food_text
 from app.services.log_service import update_daily_log
+from app.services.cache_service import redis_publish
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,10 +62,7 @@ def process_meal_analysis(self, user_id, meal_type, filename):
         print("[CELERY] Updating daily log...")
         _, alerts = update_daily_log(user_id)
         
-        # 5. Signal analysis completion via Postgres NOTIFY (Signal-based Observer)
-        # We send this AFTER the repositories have committed (implied in update_daily_log)
-        # or we explicitly commit here if needed.
-        from sqlalchemy import text
+        # 5. Signal analysis completion via Redis Pub/Sub
         payload = json.dumps({
             "type": "meal_analysis",
             "user_id": user_id,
@@ -73,11 +71,7 @@ def process_meal_analysis(self, user_id, meal_type, filename):
             "status": "completed"
         })
         db.session.commit()
-        db.session.execute(
-            text("SELECT pg_notify(:channel, :payload)"),
-            {"channel": "meal_analysis", "payload": payload}
-        )
-        db.session.commit()
+        redis_publish("meal_analysis", payload)
 
         print("[CELERY] Task finished successfully!")
 
@@ -129,8 +123,7 @@ def process_text_analysis(self, user_id, meal_type, text_description):
         print("[CELERY] Updating daily log...")
         _, alerts = update_daily_log(user_id)
         
-        # 4. Signal analysis completion via Postgres NOTIFY (Signal-based Observer)
-        from sqlalchemy import text
+        # 4. Signal analysis completion via Redis Pub/Sub
         payload = json.dumps({
             "type": "meal_analysis",
             "user_id": user_id,
@@ -139,11 +132,7 @@ def process_text_analysis(self, user_id, meal_type, text_description):
             "status": "completed"
         })
         db.session.commit()
-        db.session.execute(
-            text("SELECT pg_notify(:channel, :payload)"),
-            {"channel": "meal_analysis", "payload": payload}
-        )
-        db.session.commit()
+        redis_publish("meal_analysis", payload)
 
         print("[CELERY] Task finished successfully!")
 
