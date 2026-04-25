@@ -42,6 +42,14 @@ export default function MealLogger() {
         localStorage.removeItem(`lastPreview_${userId}`);
       }
     }
+
+    return () => {
+      // Clear analysis from storage when leaving the page,
+      // so it's not shown when coming back later.
+      const userId = getUserId();
+      localStorage.removeItem(`lastAnalysis_${userId}`);
+      localStorage.removeItem(`lastPreview_${userId}`);
+    };
   }, []);
 
   const saveAnalysis = (data, previewData = null) => {
@@ -262,7 +270,10 @@ export default function MealLogger() {
               <button
                 key={t.value}
                 className={`meal-type-btn ${mealType === t.value ? 'active' : ''}`}
-                onClick={() => setMealType(t.value)}
+                onClick={() => {
+                  setMealType(t.value);
+                  clearImage();
+                }}
               >
                 {t.label}
               </button>
