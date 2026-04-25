@@ -6,6 +6,7 @@ import base64
 import re
 from tenacity import retry, stop_after_attempt, wait_exponential
 from pycircuitbreaker import circuit
+from abc import ABC, abstractmethod
 
 def configure_gemini():
     """Configure the Gemini API client."""
@@ -69,6 +70,76 @@ def _call_groq_text(prompt):
         max_tokens=1024,
     )
     return response.choices[0].message.content.strip()
+class AIProviderStrategy(ABC):
+    @property
+    @abstractmethod
+    def name(self):
+        pass
+
+    def analyze_vision(self, prompt, image_data, mime_type):
+        raise NotImplementedError
+
+    def analyze_text(self, prompt):
+        raise NotImplementedError
+
+class GeminiStrategy(AIProviderStrategy):
+    @property
+    def name(self):
+        return 'Gemini 2.5 Flash'
+
+    def analyze_vision(self, prompt, image_data, mime_type):
+        image_part = {'mime_type': mime_type, 'data': image_data}
+        return _call_gemini_vision(prompt, image_part)
+
+    def analyze_text(self, prompt):
+        return _call_gemini_text(prompt)
+
+class GroqStrategy(AIProviderStrategy):
+    @property
+    def name(self):
+        return 'Groq (Llama)'
+
+    def analyze_vision(self, prompt, image_data, mime_type):
+        return _call_groq_vision(prompt, image_data, mime_type)
+
+    def analyze_text(self, prompt):
+        return _call_groq_text(prompt)
+
+class ProviderChain:
+    def __init__(self, strategies):
+        self.strategies = strategies
+
+    def execute_vision(self, prompt, image_data, mime_type, default_fallback):
+        for strategy in self.strategies:
+            try:
+                response_text = strategy.analyze_vision(prompt, image_data, mime_type)
+                result = json.loads(_clean_json_response(response_text))
+                result['provider'] = strategy.name
+                return result
+            except Exception as e:
+                print(f"{strategy.name} vision analysis failed: {e}. Moving to next provider...")
+                continue
+        
+        print("All providers failed. Using default fallback.")
+        result = default_fallback()
+        result['provider'] = 'Default Fallback'
+        return result
+
+    def execute_text(self, prompt, default_fallback):
+        for strategy in self.strategies:
+            try:
+                response_text = strategy.analyze_text(prompt)
+                result = json.loads(_clean_json_response(response_text))
+                result['provider'] = strategy.name
+                return result
+            except Exception as e:
+                print(f"{strategy.name} text analysis failed: {e}. Moving to next provider...")
+                continue
+        
+        print("All providers failed. Using default fallback.")
+        result = default_fallback()
+        result['provider'] = 'Default Fallback'
+        return result
 
 def get_default_food_analysis():
     return {
@@ -116,28 +187,8 @@ Return the response as a valid JSON object with this exact structure:
 Be as accurate as possible with calorie estimations based on typical serving sizes visible in the image.
 Return ONLY the JSON object, no additional text or markdown formatting."""
 
-    image_part = {
-        'mime_type': mime_type,
-        'data': image_data
-    }
-
-    try:
-        response_text = _call_gemini_vision(prompt, image_part)
-        result = json.loads(_clean_json_response(response_text))
-        result['provider'] = 'Gemini 2.5 Flash'
-        return result
-    except Exception as gemini_err:
-        print(f"Gemini API failed or circuit open: {gemini_err}. Falling back to Groq.")
-        try:
-            response_text = _call_groq_vision(prompt, image_data, mime_type)
-            result = json.loads(_clean_json_response(response_text))
-            result['provider'] = 'Groq (Llama 3.2 Vision)'
-            return result
-        except Exception as groq_err:
-            print(f"Groq API fallback failed: {groq_err}. Using default degradation.")
-            result = get_default_food_analysis()
-            result['provider'] = 'Default Fallback'
-            return result
+    chain = ProviderChain([GeminiStrategy(), GroqStrategy()])
+    return chain.execute_vision(prompt, image_data, mime_type, get_default_food_analysis)
 
 def analyze_food_text(text_description):
     """
@@ -177,23 +228,8 @@ Return the response as a valid JSON object with this exact structure:
 Be as accurate as possible with calorie estimations based on typical serving sizes for the described food.
 Return ONLY the JSON object, no additional text or markdown formatting."""
 
-    try:
-        response_text = _call_gemini_text(prompt)
-        result = json.loads(_clean_json_response(response_text))
-        result['provider'] = 'Gemini 2.5 Flash'
-        return result
-    except Exception as gemini_err:
-        print(f"Gemini API failed or circuit open: {gemini_err}. Falling back to Groq.")
-        try:
-            response_text = _call_groq_text(prompt)
-            result = json.loads(_clean_json_response(response_text))
-            result['provider'] = 'Groq (Llama 3.3)'
-            return result
-        except Exception as groq_err:
-            print(f"Groq API fallback failed: {groq_err}. Using default degradation.")
-            result = get_default_food_analysis()
-            result['provider'] = 'Default Fallback'
-            return result
+    chain = ProviderChain([GeminiStrategy(), GroqStrategy()])
+    return chain.execute_text(prompt, get_default_food_analysis)
 
 def get_meal_recommendations(remaining_calories, goal, meal_type='any', dietary_preferences='none'):
     """
@@ -249,20 +285,5 @@ Return ONLY the JSON object, no additional text or markdown formatting."""
             ]
         }
 
-    try:
-        response_text = _call_gemini_text(prompt)
-        result = json.loads(_clean_json_response(response_text))
-        result['provider'] = 'Gemini 2.5 Flash'
-        return result
-    except Exception as gemini_err:
-        print(f"Gemini API failed or circuit open: {gemini_err}. Falling back to Groq.")
-        try:
-            response_text = _call_groq_text(prompt)
-            result = json.loads(_clean_json_response(response_text))
-            result['provider'] = 'Groq (Llama 3.3)'
-            return result
-        except Exception as groq_err:
-            print(f"Groq API fallback failed: {groq_err}. Using default degradation.")
-            result = default_recommendations()
-            result['provider'] = 'Default Fallback'
-            return result
+    chain = ProviderChain([GeminiStrategy(), GroqStrategy()])
+    return chain.execute_text(prompt, default_recommendations)
