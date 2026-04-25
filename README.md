@@ -36,7 +36,7 @@ venv\Scripts\activate       # Windows
 # Install dependencies
 pip install -r requirements.txt
 
-# Run microservices cluster (API Gateway + 3 Services)
+# Run microservices cluster (API Gateway + 4 Services)
 python start_microservices.py
 
 # Install 
@@ -54,7 +54,7 @@ celery -A run_celery.celery worker --loglevel=info --pool=solo
 cd frontend
 npm run dev
 ```
-The API Gateway runs on **http://localhost:5000**, routing to internal ports (5001-5003).
+The API Gateway runs on **http://localhost:5000**, routing to internal ports (5001-5004).
 
 ### 3. Frontend (React)
 ```bash
@@ -88,6 +88,8 @@ Create `backend/.env` from `.env.example`:
 | `VITE_SENTRY_DSN` | Sentry DSN |
 
 ## 📐 Architectural Patterns Implemented
+
+For the formal Task 4 architecture comparison, see [Architecture Analysis: Microservices vs Monolithic](docs/architecture-analysis.md).
 
 ### 1. Federated Identity Pattern (Google Auth)
 **How it's implemented:** We integrated **Google OAuth2** via `@react-oauth/google` on the frontend and `google-auth` on the backend. When a user logs in, Google provides an encrypted JWT `id_token` credential directly to the React app. The React app forwards this token to our backend (`/api/auth/google`), which cryptographically verifies it securely via Google's libraries without passwords.
