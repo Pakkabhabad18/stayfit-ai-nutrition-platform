@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from app import db
 from app.models import User
+from app.repositories.user_repository import UserRepository
 from app.services.calorie_service import calculate_daily_budget
 import bcrypt
 import os
@@ -20,7 +21,7 @@ def register():
         return jsonify({'error': 'Email, password, and name are required'}), 400
 
     # Check if user already exists
-    existing = User.query.filter_by(email=data['email']).first()
+    existing = UserRepository.get_by_email(data['email'])
     if existing:
         return jsonify({'error': 'Email already registered'}), 409
 
@@ -33,8 +34,7 @@ def register():
         name=data['name'],
     )
 
-    db.session.add(user)
-    db.session.commit()
+    UserRepository.create(user)
 
     access_token = create_access_token(identity=user.id)
 
@@ -53,7 +53,7 @@ def login():
     if not data or not data.get('email') or not data.get('password'):
         return jsonify({'error': 'Email and password are required'}), 400
 
-    user = User.query.filter_by(email=data['email']).first()
+    user = UserRepository.get_by_email(data['email'])
     if not user or not bcrypt.checkpw(data['password'].encode('utf-8'), user.password_hash.encode('utf-8')):
         return jsonify({'error': 'Invalid email or password'}), 401
 
@@ -86,7 +86,7 @@ def google_login():
         email = idinfo['email']
         name = idinfo.get('name', 'User')
         
-        user = User.query.filter_by(email=email).first()
+        user = UserRepository.get_by_email(email)
         
         if not user:
             # Create a random password for google users
@@ -96,8 +96,7 @@ def google_login():
                 password_hash=random_pass,
                 name=name
             )
-            db.session.add(user)
-            db.session.commit()
+            UserRepository.create(user)
 
         access_token = create_access_token(identity=user.id)
 
@@ -116,7 +115,7 @@ def google_login():
 def get_profile():
     """Get current user profile."""
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = UserRepository.get_by_id(user_id)
 
     if not user:
         return jsonify({'error': 'User not found'}), 404
@@ -129,7 +128,7 @@ def get_profile():
 def update_profile():
     """Update user profile and calculate calorie budget."""
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = UserRepository.get_by_id(user_id)
 
     if not user:
         return jsonify({'error': 'User not found'}), 404
@@ -160,7 +159,7 @@ def update_profile():
         )
         user.profile_completed = True
 
-    db.session.commit()
+    UserRepository.commit()
 
     return jsonify({
         'message': 'Profile updated successfully',
