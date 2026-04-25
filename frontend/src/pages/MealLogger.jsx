@@ -121,21 +121,20 @@ export default function MealLogger() {
         // Our task returns { status: 'completed', analysis: { ... }, ... }
         if (result) {
           saveAnalysis(result.analysis, preview);
-          
-          // In-Band Notification Engine: Read alerts directly from the response!
+          // Show only the latest alert (highest threshold crossed)
           if (result.alerts && result.alerts.length > 0) {
             import('react-hot-toast').then(({ default: toast }) => {
-              result.alerts.forEach((alertMsg) => {
-                toast(alertMsg, {
-                  duration: 8000,
-                  icon: '🎉',
-                  style: {
-                    border: '2px solid var(--accent-red)',
-                    padding: '16px',
-                    color: 'var(--text-primary)',
-                    background: 'var(--bg-card)'
-                  }
-                });
+              const latestAlert = result.alerts[result.alerts.length - 1];
+              toast(latestAlert, {
+                duration: 8000,
+                icon: '🎉',
+                position: 'top-center',
+                style: {
+                  border: '2px solid var(--accent-red)',
+                  padding: '16px',
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-card)'
+                }
               });
             });
           }
