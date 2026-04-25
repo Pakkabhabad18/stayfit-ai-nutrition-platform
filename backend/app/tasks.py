@@ -14,8 +14,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-@shared_task(ignore_result=False)
-def process_meal_analysis(user_id, meal_type, filename):
+@shared_task(bind=True, ignore_result=False)
+def process_meal_analysis(self, user_id, meal_type, filename):
     """
     Background task to analyze food image, save to DB, and update daily log.
     """
@@ -60,13 +60,32 @@ def process_meal_analysis(user_id, meal_type, filename):
         # 4. Update daily log and capture new alerts
         print("[CELERY] Updating daily log...")
         _, alerts = update_daily_log(user_id)
+        
+        # 5. Signal analysis completion via Postgres NOTIFY (Signal-based Observer)
+        # We send this AFTER the repositories have committed (implied in update_daily_log)
+        # or we explicitly commit here if needed.
+        from sqlalchemy import text
+        payload = json.dumps({
+            "type": "meal_analysis",
+            "user_id": user_id,
+            "meal_id": str(meal.id),
+            "task_id": self.request.id if hasattr(self, 'request') else None,
+            "status": "completed"
+        })
+        db.session.commit()
+        db.session.execute(
+            text("SELECT pg_notify(:channel, :payload)"),
+            {"channel": "meal_analysis", "payload": payload}
+        )
+        db.session.commit()
+
         print("[CELERY] Task finished successfully!")
 
         return {
-            'status': 'completed',
-            'meal_id': meal.id,
-            'analysis': analysis,
-            'alerts': alerts
+            "status": "completed",
+            "meal_id": meal.id,
+            "analysis": analysis,
+            "alerts": alerts
         }
 
     except Exception as e:
@@ -76,8 +95,8 @@ def process_meal_analysis(user_id, meal_type, filename):
             'error': str(e)
         }
 
-@shared_task(ignore_result=False)
-def process_text_analysis(user_id, meal_type, text_description):
+@shared_task(bind=True, ignore_result=False)
+def process_text_analysis(self, user_id, meal_type, text_description):
     """
     Background task to analyze food text description, save to DB, and update daily log.
     """
@@ -109,13 +128,30 @@ def process_text_analysis(user_id, meal_type, text_description):
         # 3. Update daily log and capture new alerts
         print("[CELERY] Updating daily log...")
         _, alerts = update_daily_log(user_id)
+        
+        # 4. Signal analysis completion via Postgres NOTIFY (Signal-based Observer)
+        from sqlalchemy import text
+        payload = json.dumps({
+            "type": "meal_analysis",
+            "user_id": user_id,
+            "meal_id": str(meal.id),
+            "task_id": self.request.id if hasattr(self, 'request') else None,
+            "status": "completed"
+        })
+        db.session.commit()
+        db.session.execute(
+            text("SELECT pg_notify(:channel, :payload)"),
+            {"channel": "meal_analysis", "payload": payload}
+        )
+        db.session.commit()
+
         print("[CELERY] Task finished successfully!")
 
         return {
-            'status': 'completed',
-            'meal_id': meal.id,
-            'analysis': analysis,
-            'alerts': alerts
+            "status": "completed",
+            "meal_id": meal.id,
+            "analysis": analysis,
+            "alerts": alerts
         }
 
     except Exception as e:

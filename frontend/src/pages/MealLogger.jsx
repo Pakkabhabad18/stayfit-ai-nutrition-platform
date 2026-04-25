@@ -1,80 +1,77 @@
-import { useState, useRef } from 'react';
-import { uploadMeal, getTodayMeals, deleteMeal, getTaskStatus, logMealText } from '../services/api';
-import { Camera, Upload, Trash2, Sparkles, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { uploadMeal, deleteMeal, logMealText } from '../services/api';
+import { Camera, Trash2, Sparkles, X } from 'lucide-react';
+import { useMeals } from '../context/MealContext';
 
 export default function MealLogger() {
+  const { 
+    latestAnalysis, 
+    hasUnseenAnalysis,
+    isProcessing, 
+    todayMeals, 
+    fetchLatestAnalysis, 
+    startProcessing,
+    dismissAnalysis,
+    clearDraft
+  } = useMeals();
+
   const [mealType, setMealType] = useState('lunch');
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [analysis, setAnalysis] = useState(null);
-  const [todayMeals, setTodayMeals] = useState(null);
   const [dragover, setDragover] = useState(false);
   const [logMode, setLogMode] = useState('photo');
   const [textDescription, setTextDescription] = useState('');
   const fileInputRef = useRef(null);
-
-  const getUserId = () => {
-    try {
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      // Check for various common ID field names
-      return user.id || user._id || user.user_id || 'guest';
-    } catch (e) {
-      return 'guest';
-    }
-  };
+  const analysisVisible = Boolean(latestAnalysis && hasUnseenAnalysis);
+  const analysisImageSrc = analysisVisible && latestAnalysis?.image_url
+    ? `http://localhost:5000${latestAnalysis.image_url}`
+    : null;
+  const visibleMealImage = preview || analysisImageSrc;
+  const analysisVisibleRef = useRef(analysisVisible);
+  const analysisSeenRef = useRef(false);
+  const seenTimerRef = useRef(null);
 
   useEffect(() => {
-    loadTodayMeals();
-    // Restore analysis and preview from localStorage if they exist (user-specific)
-    const userId = getUserId();
-    
-    const savedAnalysis = localStorage.getItem(`lastAnalysis_${userId}`);
-    const savedPreview = localStorage.getItem(`lastPreview_${userId}`);
-    
-    if (savedAnalysis) {
-      try {
-        setAnalysis(JSON.parse(savedAnalysis));
-        if (savedPreview) setPreview(savedPreview);
-      } catch (e) {
-        localStorage.removeItem(`lastAnalysis_${userId}`);
-        localStorage.removeItem(`lastPreview_${userId}`);
-      }
-    }
+    fetchLatestAnalysis(); // Initial load of Today's Log
 
     return () => {
-      // Clear analysis from storage when leaving the page,
-      // so it's not shown when coming back later.
-      const userId = getUserId();
-      localStorage.removeItem(`lastAnalysis_${userId}`);
-      localStorage.removeItem(`lastPreview_${userId}`);
+      if (seenTimerRef.current) clearTimeout(seenTimerRef.current);
+      // Dismiss only after the card was actually visible on Log Meal.
+      if (analysisSeenRef.current) dismissAnalysis();
     };
-  }, []);
+  }, [fetchLatestAnalysis, dismissAnalysis]);
 
-  const saveAnalysis = (data, previewData = null) => {
-    setAnalysis(data);
-    const userId = getUserId();
+  useEffect(() => {
+    analysisVisibleRef.current = analysisVisible;
+    if (seenTimerRef.current) {
+      clearTimeout(seenTimerRef.current);
+      seenTimerRef.current = null;
+    }
 
-    if (data) {
-      localStorage.setItem(`lastAnalysis_${userId}`, JSON.stringify(data));
-      if (previewData) {
-        localStorage.setItem(`lastPreview_${userId}`, previewData);
+    if (!analysisVisible) {
+      analysisSeenRef.current = false;
+      return;
+    }
+
+    const markSeen = () => {
+      if (document.visibilityState === 'visible') {
+        analysisSeenRef.current = true;
       }
-    } else {
-      localStorage.removeItem(`lastAnalysis_${userId}`);
-      localStorage.removeItem(`lastPreview_${userId}`);
-    }
-  };
+    };
 
-  const loadTodayMeals = async () => {
-    try {
-      const res = await getTodayMeals();
-      setTodayMeals(res.data);
-    } catch (err) {
-      console.error('Failed to load meals:', err);
-    }
-  };
+    seenTimerRef.current = setTimeout(markSeen, 1000);
+
+    const handleVisibilityChange = () => {
+      if (analysisVisibleRef.current) markSeen();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (seenTimerRef.current) clearTimeout(seenTimerRef.current);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [analysisVisible]);
 
   const handleImageSelect = (file) => {
     if (file) {
@@ -82,7 +79,7 @@ export default function MealLogger() {
       const reader = new FileReader();
       reader.onloadend = () => setPreview(reader.result);
       reader.readAsDataURL(file);
-      saveAnalysis(null);
+      clearDraft();
     }
   };
 
@@ -109,64 +106,15 @@ export default function MealLogger() {
   };
 
   const clearImage = () => {
-    const userId = getUserId();
-    
     setImage(null);
     setPreview(null);
-    saveAnalysis(null);
     setTextDescription('');
-    localStorage.removeItem(`lastPreview_${userId}`);
+    clearDraft();
     if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const pollTaskStatus = async (taskId) => {
-    try {
-      const res = await getTaskStatus(taskId);
-      const { status, result, error } = res.data;
-
-      // SUCCESS is the standard Celery state
-      if (status === 'SUCCESS') {
-        // Our task returns { status: 'completed', analysis: { ... }, ... }
-        if (result) {
-          saveAnalysis(result.analysis, preview);
-          // Show only the latest alert (highest threshold crossed)
-          if (result.alerts && result.alerts.length > 0) {
-            import('react-hot-toast').then(({ default: toast }) => {
-              const latestAlert = result.alerts[result.alerts.length - 1];
-              toast(latestAlert, {
-                duration: 8000,
-                icon: '🎉',
-                position: 'top-center',
-                style: {
-                  border: '2px solid var(--accent-red)',
-                  padding: '16px',
-                  color: 'var(--text-primary)',
-                  background: 'var(--bg-card)'
-                }
-              });
-            });
-          }
-          loadTodayMeals();
-        }
-        setUploading(false);
-      } else if (status === 'FAILURE' || status === 'REVOKED') {
-        console.error('Analysis failed:', error);
-        alert(`Analysis failed: ${error || 'The background task was cancelled or failed.'}`);
-        setUploading(false);
-      } else {
-        // PENDING or STARTED: poll again in 1 second
-        setTimeout(() => pollTaskStatus(taskId), 1000);
-      }
-    } catch (err) {
-      console.error('Polling failed:', err);
-      // Don't stop on a single network error, try again
-      setTimeout(() => pollTaskStatus(taskId), 2000);
-    }
   };
 
   const handleTextUpload = async () => {
     if (!textDescription.trim()) return;
-    setUploading(true);
     try {
       const res = await logMealText({
         text: textDescription,
@@ -174,24 +122,17 @@ export default function MealLogger() {
       });
       
       if (res.status === 202) {
-        // Start polling for background task completion
-        pollTaskStatus(res.data.task_id);
-      } else {
-        // Fallback for direct response if any
-        setAnalysis(res.data.analysis);
-        loadTodayMeals();
-        setUploading(false);
+        const taskId = res.data.task_id;
+        startProcessing(taskId);
       }
     } catch (err) {
       console.error('Text logging failed:', err);
       alert('Failed to start text analysis. Please try again.');
-      setUploading(false);
     }
   };
 
   const handleUpload = async () => {
     if (!image) return;
-    setUploading(true);
     try {
       const formData = new FormData();
       formData.append('image', image);
@@ -200,18 +141,12 @@ export default function MealLogger() {
       const res = await uploadMeal(formData);
       
       if (res.status === 202) {
-        // Start polling for background task completion
-        pollTaskStatus(res.data.task_id);
-      } else {
-        // Fallback for direct response if any
-        setAnalysis(res.data.analysis);
-        loadTodayMeals();
-        setUploading(false);
+        const taskId = res.data.task_id;
+        startProcessing(taskId);
       }
     } catch (err) {
       console.error('Upload failed:', err);
       alert('Failed to start meal analysis. Please try again.');
-      setUploading(false);
     }
   };
 
@@ -219,7 +154,7 @@ export default function MealLogger() {
     if (!confirm('Delete this meal entry?')) return;
     try {
       await deleteMeal(id);
-      loadTodayMeals();
+      fetchLatestAnalysis();
     } catch (err) {
       console.error('Delete failed:', err);
     }
@@ -250,14 +185,14 @@ export default function MealLogger() {
           <div className="log-mode-toggle" style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
             <button 
               className={`btn ${logMode === 'photo' ? 'btn-primary' : 'btn-outline'}`} 
-              onClick={() => { setLogMode('photo'); setAnalysis(null); }}
+              onClick={() => { setLogMode('photo'); clearDraft(); }}
               style={{ flex: 1 }}
             >
               📸 Photo
             </button>
             <button 
               className={`btn ${logMode === 'text' ? 'btn-primary' : 'btn-outline'}`} 
-              onClick={() => { setLogMode('text'); setAnalysis(null); }}
+              onClick={() => { setLogMode('text'); clearDraft(); }}
               style={{ flex: 1 }}
             >
               ✍️ Text Entry
@@ -300,13 +235,13 @@ export default function MealLogger() {
                   fontFamily: 'inherit'
                 }}
               />
-              {!analysis && (
+              {!analysisVisible && (
                 <button
                   className="btn btn-primary btn-full"
                   onClick={handleTextUpload}
-                  disabled={uploading || !textDescription.trim()}
+                  disabled={isProcessing || !textDescription.trim()}
                 >
-                  {uploading ? (
+                  {isProcessing ? (
                     <>
                       <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }}></div>
                       Analyzing Text...
@@ -323,7 +258,7 @@ export default function MealLogger() {
           ) : (
             <>
               {/* Upload Zone */}
-              {!preview ? (
+              {!visibleMealImage ? (
                 <div
                   className={`meal-upload-zone ${dragover ? 'dragover' : ''}`}
                   onDrop={handleDrop}
@@ -354,19 +289,23 @@ export default function MealLogger() {
                   >
                     <X size={16} />
                   </button>
-                  <img src={preview} alt="Meal preview" className="meal-preview" />
+                  <img
+                    src={visibleMealImage}
+                    alt={analysisVisible ? 'Analyzed meal' : 'Meal preview'}
+                    className="meal-preview"
+                  />
                 </div>
               )}
 
               {/* Upload Button */}
-              {preview && !analysis && (
+              {preview && !analysisVisible && (
                 <button
                   className="btn btn-primary btn-full"
                   onClick={handleUpload}
-                  disabled={uploading}
+                  disabled={isProcessing}
                   style={{ marginTop: 16 }}
                 >
-                  {uploading ? (
+                  {isProcessing ? (
                     <>
                       <div className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }}></div>
                       Analyzing with AI...
@@ -383,20 +322,20 @@ export default function MealLogger() {
           )}
 
           {/* Analysis Result */}
-          {analysis && (
+          {analysisVisible && (
             <div className="analysis-result">
               <div className="analysis-header">
                 <div className="analysis-icon"><Sparkles size={20} /></div>
                 <div>
                   <h4 style={{ fontWeight: 600 }}>AI Analysis Complete</h4>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                    Powered by {analysis.provider || 'AI'}
+                    Powered by {latestAnalysis.provider || 'AI'}
                   </p>
                 </div>
               </div>
 
               <ul className="analysis-food-list">
-                {analysis.food_items?.map((item, i) => (
+                {latestAnalysis.food_items?.map((item, i) => (
                   <li key={i} className="analysis-food-item">
                     <span>{item.name} <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>({item.portion})</span></span>
                     <span style={{ fontWeight: 600 }}>{item.calories} cal</span>
@@ -406,18 +345,18 @@ export default function MealLogger() {
 
               <div className="analysis-total">
                 <span>Total Calories</span>
-                <span style={{ color: 'var(--accent-green)' }}>{analysis.total_calories} cal</span>
+                <span style={{ color: 'var(--accent-green)' }}>{latestAnalysis.total_calories} cal</span>
               </div>
 
               <div style={{ display: 'flex', gap: 16, marginTop: 12, justifyContent: 'center' }}>
                 <span className="reco-macro" style={{ fontSize: '0.75rem' }}>
-                  🥩 P: {analysis.total_protein_g}g
+                  🥩 P: {latestAnalysis.total_protein_g}g
                 </span>
                 <span className="reco-macro" style={{ fontSize: '0.75rem' }}>
-                  🍞 C: {analysis.total_carbs_g}g
+                  🍞 C: {latestAnalysis.total_carbs_g}g
                 </span>
                 <span className="reco-macro" style={{ fontSize: '0.75rem' }}>
-                  🧈 F: {analysis.total_fat_g}g
+                  🧈 F: {latestAnalysis.total_fat_g}g
                 </span>
               </div>
 

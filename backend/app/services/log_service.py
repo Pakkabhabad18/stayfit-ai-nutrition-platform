@@ -59,15 +59,26 @@ def update_daily_log(user_id, log_date=None):
         (1.0, "You have reached 100% of your calorie limit for today! 🛑")
     ]
     
+    highest_alert = None
     for pct, msg in thresholds:
         if old_cal < (budget * pct) and total_cal >= (budget * pct):
             triggered_alerts.append(msg)
-            payload = json.dumps({
-                "user_id": user_id,
-                "message": msg
-            })
-            # Use Postgres NOTIFY for decoupled microservices real-time communication
-            db.session.execute(text(f"NOTIFY calorie_alerts, '{payload}'"))
-            db.session.commit()
+            highest_alert = msg
+
+    if highest_alert:
+        payload = json.dumps({
+            "type": "calorie_alert",
+            "user_id": user_id,
+            "message": highest_alert
+        })
+        # Commit data FIRST, then notify (avoids race conditions)
+        db.session.commit()
+        
+        # Use Postgres NOTIFY for decoupled microservices real-time communication
+        db.session.execute(
+            text("SELECT pg_notify(:channel, :payload)"),
+            {"channel": "calorie_alerts", "payload": payload}
+        )
+        db.session.commit() # Commit the notify query itself
 
     return daily_log, triggered_alerts

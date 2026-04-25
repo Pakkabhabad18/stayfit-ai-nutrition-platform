@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { MealProvider } from './context/MealContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -71,9 +72,11 @@ export default function App() {
     <GoogleOAuthProvider clientId={clientId}>
       <BrowserRouter>
         <AuthProvider>
-          <Sentry.ErrorBoundary fallback={<p>Something went wrong</p>}>
-            <AppRoutes />
-          </Sentry.ErrorBoundary>
+          <MealProvider>
+            <Sentry.ErrorBoundary fallback={<p>Something went wrong</p>}>
+              <AppRoutes />
+            </Sentry.ErrorBoundary>
+          </MealProvider>
         </AuthProvider>
       </BrowserRouter>
     </GoogleOAuthProvider>

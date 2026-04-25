@@ -1,11 +1,13 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useMeals } from '../context/MealContext';
 import { LayoutDashboard, Camera, BarChart3, Lightbulb, User, LogOut } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import { useEffect } from 'react';
 
 export default function Layout() {
   const { user, logoutUser } = useAuth();
+  const { fetchLatestAnalysis } = useMeals();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -21,19 +23,42 @@ export default function Layout() {
     const eventSource = new EventSource(`http://localhost:5000/api/notifications/stream?token=${token}`);
     
     eventSource.onmessage = (event) => {
-      // Notification display is now handled only in MealLogger.jsx
-      // Do nothing here to avoid duplicate notifications
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'ping') return;
+
+        // Filter by user_id for security
+        if (String(data.user_id) !== String(user.id)) return;
+
+        if (data.type === 'calorie_alert') {
+          toast(data.message, {
+            duration: 6000,
+            icon: '⚠️',
+            style: {
+              background: 'var(--bg-card)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--accent-red)'
+            }
+          });
+        } else if (data.type === 'meal_analysis') {
+          // Signal-based Observer: Fetch the actual data now that we know it's ready
+          fetchLatestAnalysis(data.meal_id, data.task_id);
+        }
+      } catch (e) {
+        console.error("Failed to parse SSE message:", e);
+      }
     };
 
     eventSource.onerror = (err) => {
       console.error("SSE Connection Error:", err);
       eventSource.close();
+      // In a real app, you might want to dispatch a "SSE_OFFLINE" event here
     };
 
     return () => {
       eventSource.close();
     };
-  }, [user]);
+  }, [user, fetchLatestAnalysis]);
 
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },

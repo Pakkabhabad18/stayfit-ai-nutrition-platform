@@ -22,8 +22,10 @@ def stream_notifications():
         conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
         cursor = conn.cursor()
         
-        # Subscribe to the channel
-        cursor.execute("LISTEN calorie_alerts;")
+        # Subscribe to channels
+        channels = ["calorie_alerts", "meal_analysis"]
+        for channel in channels:
+            cursor.execute(f"LISTEN {channel};")
         
         try:
             # Yield initial connection heartbeat to prevent timeouts
