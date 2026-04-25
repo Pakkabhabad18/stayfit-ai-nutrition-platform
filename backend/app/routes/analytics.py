@@ -4,7 +4,7 @@ from app.models import Meal, DailyLog, User
 from app.repositories.user_repository import UserRepository
 from app.repositories.meal_repository import MealRepository
 from app.repositories.daily_log_repository import DailyLogRepository
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from sqlalchemy import func
 
 analytics_bp = Blueprint('analytics', __name__)
@@ -17,9 +17,10 @@ def get_daily_summary():
     user_id = get_jwt_identity()
     user = UserRepository.get_by_id(user_id)
 
-    today = datetime.utcnow().date()
-    start = datetime.combine(today, datetime.min.time())
-    end = datetime.combine(today, datetime.max.time())
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date()
+    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
 
     meals = MealRepository.get_by_user_and_date_range(user_id, start, end)
 
@@ -66,9 +67,9 @@ def get_weekly_trends():
     days_on_track = 0
     now_utc = datetime.now(timezone.utc)
     for i in range(6, -1, -1):
-        day = datetime.utcnow().date() - timedelta(days=i)
-        start = datetime.combine(day, datetime.min.time())
-        end = datetime.combine(day, datetime.max.time())
+        day = now_utc.date() - timedelta(days=i)
+        start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        end = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
 
         meals = MealRepository.get_by_user_and_date_range(user_id, start, end)
 
@@ -115,7 +116,7 @@ def get_progress():
         return jsonify({'error': 'User not found'}), 404
 
     # Get data for the last 30 days
-    thirty_days_ago = datetime.utcnow().date() - timedelta(days=30)
+    thirty_days_ago = datetime.now(timezone.utc).date() - timedelta(days=30)
 
     daily_logs = DailyLogRepository.get_recent_logs(user_id, thirty_days_ago)
 

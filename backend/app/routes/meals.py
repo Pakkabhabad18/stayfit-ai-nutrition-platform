@@ -149,9 +149,10 @@ def get_today_meals():
     user_id = get_jwt_identity()
     user = UserRepository.get_by_id(user_id)
 
-    today = datetime.utcnow().date()
-    start = datetime.combine(today, datetime.min.time())
-    end = datetime.combine(today, datetime.max.time())
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date()
+    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
 
     meals = MealRepository.get_by_user_and_date_range(user_id, start, end)
 

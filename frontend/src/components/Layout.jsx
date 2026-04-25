@@ -21,25 +21,8 @@ export default function Layout() {
     const eventSource = new EventSource(`http://localhost:5000/api/notifications/stream?token=${token}`);
     
     eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'ping') return;
-        
-        // Render beautiful toast from Postgres Pub/Sub!
-        toast.success(data.message, {
-          duration: 6000,
-          position: 'top-right',
-          style: {
-            border: '1px solid var(--accent-red)',
-            padding: '16px',
-            color: 'var(--text-primary)',
-            background: 'var(--bg-card)'
-          },
-          icon: '🔔',
-        });
-      } catch (err) {
-        console.error("Failed to parse notification:", err);
-      }
+      // Notification display is now handled only in MealLogger.jsx
+      // Do nothing here to avoid duplicate notifications
     };
 
     eventSource.onerror = (err) => {

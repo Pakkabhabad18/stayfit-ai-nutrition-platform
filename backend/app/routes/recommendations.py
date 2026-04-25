@@ -20,9 +20,10 @@ def get_recommendations():
         return jsonify({'error': 'User not found'}), 404
 
     # Calculate remaining calories for today
-    today = datetime.utcnow().date()
-    start = datetime.combine(today, datetime.min.time())
-    end = datetime.combine(today, datetime.max.time())
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date()
+    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
 
     meals = MealRepository.get_by_user_and_date_range(user_id, start, end)
 

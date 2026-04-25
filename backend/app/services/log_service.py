@@ -10,7 +10,7 @@ from app.repositories.daily_log_repository import DailyLogRepository
 def update_daily_log(user_id, log_date=None):
     """Recalculate and update the daily log for a user."""
     if log_date is None:
-        log_date = datetime.utcnow().date()
+        log_date = datetime.now(timezone.utc).date()
 
     user = UserRepository.get_by_id(user_id)
 
