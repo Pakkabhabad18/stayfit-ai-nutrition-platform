@@ -6,6 +6,7 @@ from app.models import Meal, DailyLog, User
 from app.repositories.user_repository import UserRepository
 from app.repositories.meal_repository import MealRepository
 from app.repositories.daily_log_repository import DailyLogRepository
+from app.services.cache_service import redis_publish, invalidate_user_analytics_cache
 
 def update_daily_log(user_id, log_date=None):
     """Recalculate and update the daily log for a user."""
@@ -74,11 +75,10 @@ def update_daily_log(user_id, log_date=None):
         # Commit data FIRST, then notify (avoids race conditions)
         db.session.commit()
         
-        # Use Postgres NOTIFY for decoupled microservices real-time communication
-        db.session.execute(
-            text("SELECT pg_notify(:channel, :payload)"),
-            {"channel": "calorie_alerts", "payload": payload}
-        )
-        db.session.commit() # Commit the notify query itself
+        # Use Redis Pub/Sub for decoupled microservices real-time communication
+        redis_publish("calorie_alerts", payload)
+
+    # Automatically bust the Analytics cache so the user's dashboard refreshes accurately
+    invalidate_user_analytics_cache(user_id)
 
     return daily_log, triggered_alerts

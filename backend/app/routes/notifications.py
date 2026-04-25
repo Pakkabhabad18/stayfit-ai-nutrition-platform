@@ -1,48 +1,42 @@
 import json
-import os
-import psycopg2
-import select
-from flask import Blueprint, Response, current_app
+import time
+from flask import Blueprint, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from app.services.cache_service import get_redis_pubsub
 
 notifications_bp = Blueprint('notifications', __name__)
 
 @notifications_bp.route('/stream', methods=['GET'])
 @jwt_required()
 def stream_notifications():
-    """SSE endpoint for real-time notifications via Postgres Pub/Sub"""
+    """SSE endpoint for real-time notifications via Redis Pub/Sub"""
     user_id = get_jwt_identity()
 
     def generate_events():
-        # Get DB URL from env
-        db_url = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/stayfit')
-        
-        # Connect to Postgres bypassing SQLAlchemy connection pool for LISTEN
-        conn = psycopg2.connect(db_url)
-        conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-        cursor = conn.cursor()
-        
-        # Subscribe to channels
-        channels = ["calorie_alerts", "meal_analysis"]
-        for channel in channels:
-            cursor.execute(f"LISTEN {channel};")
-        
+        pubsub = get_redis_pubsub()
+        if not pubsub:
+            # If Redis is unavailable, stream a heartbeat and return
+            yield "data: {\"type\": \"ping\"}\n\n"
+            return
+            
         try:
+            pubsub.subscribe("calorie_alerts", "meal_analysis")
             # Yield initial connection heartbeat to prevent timeouts
             yield "data: {\"type\": \"ping\"}\n\n"
             
             while True:
-                # Wait for notifications
-                if select.select([conn], [], [], 30) == ([], [], []):
+                # Poll Redis pubsub messages with a timeout simulating Select
+                message = pubsub.get_message(timeout=30.0)
+                
+                if message is None:
                     # Timeout, send keepalive
                     yield "data: {\"type\": \"ping\"}\n\n"
                     continue
                 
-                conn.poll()
-                while conn.notifies:
-                    notify = conn.notifies.pop(0)
+                # We only want standard published messages
+                if message['type'] == 'message':
                     try:
-                        payload = json.loads(notify.payload)
+                        payload = json.loads(message['data'])
                         # Only forward if message is meant for this user
                         if str(payload.get("user_id")) == str(user_id):
                             # SSE string format: "data: <json>\n\n"
@@ -50,7 +44,7 @@ def stream_notifications():
                     except json.JSONDecodeError:
                         continue
         finally:
-            cursor.close()
-            conn.close()
+            if pubsub:
+                pubsub.close()
 
     return Response(generate_events(), mimetype='text/event-stream', headers={'Cache-Control': 'no-cache', 'Connection': 'keep-alive'})

@@ -6,6 +6,7 @@ from app.repositories.meal_repository import MealRepository
 from app.repositories.daily_log_repository import DailyLogRepository
 from datetime import datetime, date, timedelta, timezone
 from sqlalchemy import func
+from app.services.cache_service import cache_response
 
 analytics_bp = Blueprint('analytics', __name__)
 
@@ -55,6 +56,7 @@ def get_daily_summary():
 
 @analytics_bp.route('/weekly', methods=['GET'])
 @jwt_required()
+@cache_response(timeout=300)
 def get_weekly_trends():
     """Get weekly calorie trends for the past 7 days."""
     user_id = get_jwt_identity()
@@ -107,6 +109,7 @@ def get_weekly_trends():
 
 @analytics_bp.route('/progress', methods=['GET'])
 @jwt_required()
+@cache_response(timeout=300)
 def get_progress():
     """Get overall progress toward dietary goals."""
     user_id = get_jwt_identity()
