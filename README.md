@@ -11,7 +11,7 @@ project3/
 └── database/         # PostgreSQL Schema
 ```
 
-## ⚡ Quick Setup
+## Quick Setup
 
 ### 1. Database (PostgreSQL)
 ```bash
@@ -87,7 +87,7 @@ Create `backend/.env` from `.env.example`:
 | `VITE_GOOGLE_CLIENT_ID`| Google OAuth2 Client ID (Frontend) |
 | `VITE_SENTRY_DSN` | Sentry DSN |
 
-## 📐 Architectural Patterns Implemented
+## Architectural Patterns Implemented
 
 For the formal Task 4 architecture comparison, see [Architecture Analysis: Microservices vs Monolithic](docs/architecture-analysis.md).
 
@@ -126,7 +126,7 @@ For the formal Task 4 architecture comparison, see [Architecture Analysis: Micro
 - **Drastically Lowered Latency:** What previously took 3.5 seconds inside Gemini flash queries now pulls in under ~5ms.
 - **Cost Reduction:** Protects the cloud budget from spamming unnecessary identical LLM prompting externally and vastly spares the PostgreSQL database from executing repetitive complex `SUM()` aggregate functions.
 
-## ✨ Features
+## Features
 
 1. **User Authentication** - Email/password with JWT tokens
 2. **Profile Setup** - Age, gender, weight, height, activity level, goal → auto-calculated daily calorie budget
@@ -136,7 +136,7 @@ For the formal Task 4 architecture comparison, see [Architecture Analysis: Micro
 6. **AI Meal Recommendations** - Personalized meal suggestions based on remaining budget
 7. **Health Analytics Dashboard** - Weekly trends, macro breakdowns, 30-day progress charts
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Frontend**: React 18, Vite, Chart.js, React Router, Lucide Icons
 - **Backend**: Python Flask, Flask-JWT-Extended, SQLAlchemy
