@@ -1,6 +1,15 @@
 # StayFit - AI-Powered Calorie Tracker
 
 A full-stack application that uses AI (Gemini 2.5 Flash) to analyze food photos and track daily calorie intake.
+## Team and my role
+
+Team project for the Software Engineering course at IIIT Hyderabad (Jan–Apr 2026), built by Prakash Bhabad together with Himani Sharma, Kripi Singla, Paridhi Jain and Sai. Most code was pushed from teammates' machines, which is why the commit history shows their names.
+
+**My role (Prakash Bhabad, team lead):**
+- Led the team and coordinated the work across backend, frontend and documentation.
+- Gathered the functional and non-functional requirements (latency, availability, scalability, security) from 6 stakeholder groups.
+- Drove the system design: splitting the backend into 4 microservices behind an API gateway, moving AI analysis to Celery/Redis queues, and the caching and pub/sub design, with each trade-off recorded as an Architecture Decision Record.
+- Planned the load and fault-isolation tests that compared the microservices build with a monolith.
 
 ## Project Structure
 
